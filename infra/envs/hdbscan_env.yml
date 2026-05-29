@@ -1,0 +1,19 @@
+name: hdbscan-env
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - azureml-core
+      - azureml-mlflow
+      - hdbscan
+      - numba
+      - llvmlite
+      - cython
+      - pandas
+      - numpy
+      - scikit-learn
+      - matplotlib

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "${AZURE_RESOURCE_GROUP}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "workspaceName": {
+      "value": "${AZURE_ML_WORKSPACE}"
+    },
+    "computeClusterName": {
+      "value": "${AZURE_COMPUTE_CLUSTER}"
+    },
+    "computeInstanceName": {
+      "value": "${AZURE_COMPUTE_INSTANCE}"
+    },
+    "environmentName": {
+      "value": "${AZURE_ENVIRONMENT_NAME}"
+    },
+    "registryName": {
+      "value": "${AZURE_REGISTRY_NAME}"
+    }
+  }
+}
