@@ -23,14 +23,14 @@ resource kv 'Microsoft.KeyVault/vaults@2023-02-01' = {
   }
 }
 
-resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
-  name: '${prefixValue}acreg'
-  location: location
-  sku: { name: 'Basic' }
-  properties: {
-    adminUserEnabled: true
-  }
-}
+ resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
+   name: '${prefixValue}acreg'
+   location: location
+   sku: { name: 'Basic' }
+   properties: {
+     adminUserEnabled: true
+   }
+ }
 
 resource appi 'Microsoft.Insights/components@2020-02-02' = {
   name: 'appi${randomSuffix}'

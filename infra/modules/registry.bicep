@@ -1,4 +1,5 @@
 // https://learn.microsoft.com/en-us/azure/templates/microsoft.machinelearningservices/registries?pivots=deployment-language-bicep
+// https://github.com/Azure/bicep-registry-modules/blob/main/avm/res/machine-learning-services/registry/main.bicep
 
 @description('Name of the Azure ML Registry')
 param registryName string
@@ -14,10 +15,10 @@ resource mlRegistry 'Microsoft.MachineLearningServices/registries@2026-03-01' = 
     type: 'SystemAssigned'
   }
 
-  sku: {
-    name: 'Standard'
-    tier: 'Standard'
-  }
+  // sku: {
+  //   name: 'Standard'
+  //   tier: 'Standard'
+  // }
 
   properties: {
     publicNetworkAccess: 'Enabled'
