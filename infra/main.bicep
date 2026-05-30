@@ -73,14 +73,14 @@ module computeInstance './modules/compute-instance.bicep' = {
 //   dependsOn: [workspace]
 // }
 
-module registry './modules/registry.bicep' = {
-   name: 'registry'
-   scope: rg
-   params: {
-     registryName: registryName
-   }
-//   dependsOn: [workspace]
-}
+// module registry './modules/registry.bicep' = {
+//    name: 'registry'
+//    scope: rg
+//    params: {
+//      registryName: registryName
+//    }
+// //   dependsOn: [workspace]
+// }
 
 output resourceGroup string = rg.name
 output workspaceId string = workspace.outputs.workspaceId
