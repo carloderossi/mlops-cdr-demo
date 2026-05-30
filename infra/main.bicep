@@ -63,15 +63,15 @@ module computeInstance './modules/compute-instance.bicep' = {
   dependsOn: [workspace]
 }
 
-// module environment './modules/environment.bicep' = {
-//   name: 'environment'
-//   scope: rg
-//   params: {
-//     workspaceName: workspaceName
-//     environmentName: environmentName
-//   }
-//   dependsOn: [workspace]
-// }
+module environment './modules/environment.bicep' = {
+   name: 'environment'
+   scope: rg
+   params: {
+     workspaceName: workspaceName
+     environmentName: environmentName
+   }
+   dependsOn: [workspace]
+ }
 
 // module registry './modules/registry.bicep' = {
 //    name: 'registry'
