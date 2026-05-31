@@ -25,7 +25,7 @@ resource environmentVersion 'Microsoft.MachineLearningServices/workspaces/enviro
   name: '1' // Explicit string assignment representing asset versioning
   parent: environmentContainer
   properties: {
-    description: 'Credit Risk Demo Environment'
+    // description: 'Credit Risk Demo Environment'
     image: 'mcr.microsoft.com/azureml/sklearn-1.2-ubuntu20.04-py38-cpu-inference:latest'
     condaFile: loadTextContent('../envs/train-env.yml')
     autoRebuild: 'Disabled' // Prevents redundant continuous evaluation/build loops if configurations match

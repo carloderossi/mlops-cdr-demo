@@ -143,7 +143,10 @@ DOWNTURN_PARAMS = dict(
 # Main
 # ---------------------------------------------------------------------------
 
-def main(output_dir: str, seed: int):
+def main(output_dir: str = "./data", seed: int = 42):
+    print("Output dir:", output_dir)
+    print("Seed:", seed)
+
     os.makedirs(output_dir, exist_ok=True)
 
     # 1. Baseline: train + test split (Champion ModelA training data)
@@ -204,7 +207,7 @@ def main(output_dir: str, seed: int):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate synthetic credit risk datasets")
-    parser.add_argument("--output_dir", type=str, default="./", help="Output directory for parquet files")
+    parser.add_argument("--output_dir", type=str, default="./data", help="Output directory for parquet files")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
     main(args.output_dir, args.seed)

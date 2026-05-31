@@ -12,6 +12,8 @@ dependencies = [
     "numpy<=1.26.2",
     "scikit-learn<=1.2.2",
     "matplotlib<4.0.0",
+    "pyarrow>=24.0.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [tool.uv]
