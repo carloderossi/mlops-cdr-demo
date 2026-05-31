@@ -5,7 +5,7 @@ Azure ML training script for the Credit Risk Champion–Challenger demo.
 
 Trains an XGBoost binary classifier on synthetic credit data.
 Logs all metrics, parameters, and artifacts to MLflow.
-Registers the model in the Azure ML Registry using MLflow format.
+Optionally registers the trained model in the Azure ML Registry.
 
 Inputs  (Azure ML job input paths):
     --train_data    : path to training parquet file
@@ -15,14 +15,32 @@ Outputs (Azure ML job output paths):
     --model_output  : directory where the MLflow model artifact is written
 
 Optional:
-    --model_name    : name for registry registration (default: credit-risk-model)
-    --n_estimators  : XGBoost n_estimators (default: 200)
-    --max_depth     : XGBoost max_depth (default: 5)
-    --learning_rate : XGBoost learning_rate (default: 0.05)
-    --subsample     : XGBoost subsample (default: 0.8)
-    --reg_alpha     : XGBoost L1 regularisation (default: 0.1)
-    --reg_lambda    : XGBoost L2 regularisation (default: 1.0)
-    --scale_pos_weight : XGBoost class imbalance weight (default: auto)
+    --model_name        : model name in the Registry (default: credit-risk-model)
+    --register_model    : flag — if set, registers the model in-job via MLflow URI
+    --model_role        : champion | challenger (stored as registry tag)
+    --drift_trigger     : human-readable drift description (stored as registry tag)
+    --initial_traffic_pct : initial traffic % tag (default: 100 for champion, 0 for challenger)
+    --n_estimators      : XGBoost n_estimators (default: 200)
+    --max_depth         : XGBoost max_depth (default: 5)
+    --learning_rate     : XGBoost learning_rate (default: 0.05)
+    --subsample         : XGBoost subsample (default: 0.8)
+    --reg_alpha         : XGBoost L1 regularisation (default: 0.1)
+    --reg_lambda        : XGBoost L2 regularisation (default: 1.0)
+    --scale_pos_weight  : XGBoost class imbalance weight (default: auto)
+
+Registration strategy
+---------------------
+Two paths exist — use one, not both:
+
+  Path A — in-job (this script, --register_model flag):
+    Suitable for automated pipelines where the submitter process has no
+    post-job hook. The AzureML SDK is called inside the training compute.
+    Requires the compute identity to have AcrPush + AML Contributor on the registry.
+
+  Path B — post-job (submit_train_job.py):
+    The submitter process waits for job completion, downloads eval_metrics.json,
+    and calls ml_client.models.create_or_update. Preferred for local/CI workflows.
+    train.py remains SDK-free and easier to unit-test.
 """
 
 import argparse
@@ -50,6 +68,58 @@ from xgboost import XGBClassifier
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-job model registration  (Path A — see module docstring)
+# ---------------------------------------------------------------------------
+
+def register_model_in_job(
+    run_id: str,
+    model_uri: str,
+    model_name: str,
+    model_role: str,
+    drift_trigger: str,
+    initial_traffic_pct: int,
+    metrics: dict,
+) -> None:
+    """
+    Register the MLflow model artifact in the Azure ML Registry from *inside*
+    the training job.  Called only when --register_model flag is set.
+
+    Uses mlflow.register_model so no azure-ai-ml SDK import is needed at
+    training time — the AzureML MLflow plugin handles registry routing.
+    """
+    from datetime import datetime, timezone
+
+    deployment_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    lifecycle_tags = {
+        "champion_challenger_status": model_role,
+        "model_role":                 model_role,
+        "deployment_date":            deployment_date,
+        "drift_trigger":              drift_trigger or ("initial_training" if model_role == "champion" else "covariate_drift"),
+        "traffic_pct":                str(initial_traffic_pct),
+        "roc_auc":                    str(metrics.get("roc_auc", "n/a")),
+        "f1_score":                   str(metrics.get("f1_score", "n/a")),
+        "precision":                  str(metrics.get("precision", "n/a")),
+        "recall":                     str(metrics.get("recall", "n/a")),
+        "project":                    "mlops-cdr-demo",
+        "rollback_model":             "n/a",
+    }
+    mlflow.set_tags(lifecycle_tags)
+    log.info("Lifecycle tags set on MLflow run: %s", json.dumps(lifecycle_tags, indent=2))
+
+    log.info("Registering model '%s' from URI: %s", model_name, model_uri)
+    registered = mlflow.register_model(
+        model_uri=model_uri,
+        name=model_name,
+    )
+    log.info(
+        "Model registered in-job: name=%s  version=%s",
+        registered.name,
+        registered.version,
+    )
+
 
 FEATURE_COLS = [
     "income",
@@ -150,6 +220,11 @@ def train(args):
 
     # --- MLflow run ---
     mlflow.xgboost.autolog(log_models=False)  # we log manually for full control
+
+    # SAFETY CHECK: End any existing active runs (avoids conflict with autolog)
+    if mlflow.active_run():
+        log.info("Ending ambient active run: %s", mlflow.active_run().info.run_id)
+        mlflow.end_run()
 
     with mlflow.start_run():
 
@@ -268,6 +343,23 @@ def train(args):
 
         log.info("Training complete. ROC-AUC = %.4f", roc_auc)
 
+        # --- Optional in-job registration (Path A) ---
+        # Active when --register_model flag is passed.
+        # The active MLflow run_id is available while still inside `with mlflow.start_run()`.
+        if getattr(args, "register_model", False):
+            run = mlflow.active_run()
+            # mlflow_model URI format understood by Azure ML registry routing
+            model_uri = f"runs:/{run.info.run_id}/model"
+            register_model_in_job(
+                run_id=run.info.run_id,
+                model_uri=model_uri,
+                model_name=args.model_name,
+                model_role=getattr(args, "model_role", "champion"),
+                drift_trigger=getattr(args, "drift_trigger", None),
+                initial_traffic_pct=getattr(args, "initial_traffic_pct", 100),
+                metrics=metrics,
+            )
+
     return metrics
 
 
@@ -292,6 +384,19 @@ def parse_args():
     parser.add_argument("--model_name", type=str, default="credit-risk-model",
                         help="Model name for MLflow / registry logging")
 
+    # Model lifecycle / registration
+    parser.add_argument("--register_model", action="store_true",
+                        help="Register model in-job via MLflow (Path A). "
+                             "Omit to let submit_train_job.py handle registration (Path B).")
+    parser.add_argument("--model_role", type=str, default="champion",
+                        choices=["champion", "challenger"],
+                        help="Lifecycle role stored as registry tag")
+    parser.add_argument("--drift_trigger", type=str, default=None,
+                        help="Human-readable drift description stored as registry tag "
+                             "(e.g. 'covariate_drift: income -17%%')")
+    parser.add_argument("--initial_traffic_pct", type=int, default=None,
+                        help="Initial traffic %% tag. Defaults: 100 for champion, 0 for challenger.")
+
     # Hyperparameters
     parser.add_argument("--n_estimators", type=int, default=200)
     parser.add_argument("--max_depth", type=int, default=5)
@@ -306,7 +411,12 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    # Log model name as MLflow tag
+    # Default traffic pct by role
+    if args.initial_traffic_pct is None:
+        args.initial_traffic_pct = 100 if args.model_role == "champion" else 0
+    # Log identity tags on the outer run context
     mlflow.set_tag("model_name", args.model_name)
-    mlflow.set_tag("champion_challenger_status", "candidate")
+    mlflow.set_tag("model_role", args.model_role)
+    mlflow.set_tag("champion_challenger_status",
+                   "champion" if args.model_role == "champion" else "challenger_candidate")
     train(args)

@@ -16,4 +16,4 @@ dependencies:
       - shap==0.45.0
       - matplotlib==3.8.4
       - seaborn==0.13.2
-      - pyarrow==16.0.0
+      - pyarrow

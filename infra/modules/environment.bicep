@@ -9,11 +9,11 @@ resource workspace 'Microsoft.MachineLearningServices/workspaces@2024-04-01' exi
 // ==========================================
 // AzureML Environment Container (Parent)
 // ==========================================
-resource environmentContainer 'Microsoft.MachineLearningServices/workspaces/environments@2024-04-01' = {
+resource environmentContainer 'Microsoft.MachineLearningServices/workspaces/environments@2025-12-01' = {
   name: 'cdr-mldemo-train-env'
   parent: workspace
   properties: {
-    description: 'Credit Risk Demo Environment Container'
+    //description: 'Credit Risk Demo Environment Container'
     isArchived: false
   }
 }
