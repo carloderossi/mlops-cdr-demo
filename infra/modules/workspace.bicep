@@ -1,5 +1,6 @@
 param workspaceName string
 param location string
+param environmentName string
 
 var prefixValue = replace(workspaceName, '-', '')
 var randomSuffix = uniqueString(resourceGroup().id)

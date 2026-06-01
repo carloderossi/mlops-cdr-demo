@@ -11,7 +11,7 @@ resource cluster 'Microsoft.MachineLearningServices/workspaces/computes@2024-04-
       vmSize: 'STANDARD_DS3_V2'
       scaleSettings: {
         minNodeCount: 0
-        maxNodeCount: 2
+        maxNodeCount: 1
       }
     }
   }

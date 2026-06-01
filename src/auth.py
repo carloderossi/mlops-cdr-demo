@@ -89,7 +89,7 @@ def getMLClient(config_path: str):
     WORKSPACE_NAME = os.environ["AZURE_ML_WORKSPACE"]
     print(f"{CYAN}Using workspace:{RESET} {GREEN}{WORKSPACE_NAME}{RESET}")
     RESOURCE_GROUP = os.environ["AZURE_RESOURCE_GROUP"]
-    print(f"{CYAN}Using resource group:{RESET} {YELLOW}{RESOURCE_GROUP}{RESET}")
+    print(f"{CYAN}Using resource group:{RESET} {MAGENTA}{RESOURCE_GROUP}{RESET}")
 
     ml_client = MLClient(
         credentials,

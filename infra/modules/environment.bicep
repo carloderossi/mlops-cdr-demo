@@ -1,7 +1,7 @@
 param workspaceName string
 param environmentName string
 
-// !!! Re-declare the workspace as an "existing" resource using the passed string
+//!!! Re-declare the workspace as an "existing" resource using the passed string
 resource workspace 'Microsoft.MachineLearningServices/workspaces@2024-04-01' existing = {
   name: workspaceName
 }
@@ -10,7 +10,7 @@ resource workspace 'Microsoft.MachineLearningServices/workspaces@2024-04-01' exi
 // AzureML Environment Container (Parent)
 // ==========================================
 resource environmentContainer 'Microsoft.MachineLearningServices/workspaces/environments@2025-12-01' = {
-  name: 'cdr-mldemo-train-env'
+  name: environmentName
   parent: workspace
   properties: {
     //description: 'Credit Risk Demo Environment Container'
@@ -21,7 +21,7 @@ resource environmentContainer 'Microsoft.MachineLearningServices/workspaces/envi
 // ==========================================
 // AzureML Environment Version (Child)
 // ==========================================
-resource environmentVersion 'Microsoft.MachineLearningServices/workspaces/environments/versions@2024-04-01' = {
+resource environmentVersion 'Microsoft.MachineLearningServices/workspaces/environments/versions@2025-12-01' = {
   name: '1' // Explicit string assignment representing asset versioning
   parent: environmentContainer
   properties: {

@@ -219,7 +219,18 @@ def train(args):
         scale_pos_weight = args.scale_pos_weight
 
     # --- MLflow run ---
-    mlflow.xgboost.autolog(log_models=False)  # we log manually for full control
+    # Disable autolog param logging entirely — we log params manually below
+    # with exact values. autolog and manual log_params on the same key causes
+    # a "Changing param values is not allowed" MLflowException because autolog
+    # fires mid-fit with a slightly different float representation.
+    mlflow.xgboost.autolog(
+        log_models=False,       # we save manually for full signature/example control
+        log_input_examples=False,
+        log_model_signatures=False,
+        disable=False,
+        exclusive=False,
+        silent=True,
+    )
 
     # SAFETY CHECK: End any existing active runs (avoids conflict with autolog)
     if mlflow.active_run():
@@ -228,20 +239,23 @@ def train(args):
 
     with mlflow.start_run():
 
-        # Log parameters
+        # Log parameters BEFORE model.fit() so autolog cannot race and collide.
+        # scale_pos_weight is logged here at full precision; autolog is told
+        # to skip params (log_datasets=False covers dataset info; param
+        # collision is avoided because we call log_params first and MLflow
+        # does not allow overwrites).
         params = {
-            "n_estimators": args.n_estimators,
-            "max_depth": args.max_depth,
-            "learning_rate": args.learning_rate,
-            "subsample": args.subsample,
-            "reg_alpha": args.reg_alpha,
-            "reg_lambda": args.reg_lambda,
-            "scale_pos_weight": round(scale_pos_weight, 4),
-            "colsample_bytree": 0.8,
-            "min_child_weight": 5,
-            "eval_metric": "auc",
-            "use_label_encoder": False,
-            "random_state": 42,
+            "n_estimators":      args.n_estimators,
+            "max_depth":         args.max_depth,
+            "learning_rate":     args.learning_rate,
+            "subsample":         args.subsample,
+            "reg_alpha":         args.reg_alpha,
+            "reg_lambda":        args.reg_lambda,
+            "scale_pos_weight":  scale_pos_weight,   # full precision, no rounding
+            "colsample_bytree":  0.8,
+            "min_child_weight":  3,
+            "eval_metric":       "auc",
+            "random_state":      42,
         }
         mlflow.log_params(params)
 
@@ -256,12 +270,11 @@ def train(args):
             reg_alpha=args.reg_alpha,
             reg_lambda=args.reg_lambda,
             scale_pos_weight=scale_pos_weight,
-            min_child_weight=5,
+            min_child_weight=3,         # was 5 — too restrictive for ~1600-row eval set
             eval_metric="auc",
-            use_label_encoder=False,
             random_state=42,
             n_jobs=-1,
-            early_stopping_rounds=20,
+            early_stopping_rounds=50,   # was 20 — fired at round 5, massively undertrained
         )
         model.fit(
             X_train,
@@ -323,15 +336,20 @@ def train(args):
         log.info("Saving model to: %s", args.model_output)
         os.makedirs(args.model_output, exist_ok=True)
 
-        # Signature for schema validation at inference time
+        # Signature for schema validation at inference time.
+        # Cast integer columns to float64 so MLflow schema does not flag missing
+        # values as type errors at inference time (int64 cannot represent NaN).
         from mlflow.models.signature import infer_signature
-        signature = infer_signature(X_train, model.predict_proba(X_train)[:, 1])
+        INT_COLS = ["age", "credit_score", "num_credit_lines", "num_late_payments"]
+        X_train_sig = X_train.copy().astype({c: "float64" for c in INT_COLS if c in X_train.columns})
+        X_test_sig  = X_test.copy().astype({c: "float64" for c in INT_COLS if c in X_test.columns})
+        signature = infer_signature(X_train_sig, model.predict_proba(X_train_sig)[:, 1])
 
         mlflow.xgboost.save_model(
             model,
             path=args.model_output,
             signature=signature,
-            input_example=X_train.head(5),
+            input_example=X_train_sig.head(5),   # must match signature schema
         )
         log.info("Model artifact saved.")
 

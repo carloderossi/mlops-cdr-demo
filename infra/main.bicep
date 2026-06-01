@@ -18,8 +18,8 @@ param computeInstanceName string
 @description('Environment name')
 param environmentName string
 
-@description('Registry name')
-param registryName string
+// @description('Registry name')
+// param registryName string
 
 //
 // 1. Create the Resource Group
@@ -38,21 +38,32 @@ module workspace './modules/workspace.bicep' = {
   params: {
     workspaceName: workspaceName
     location: location
+    environmentName: environmentName
   }
 }
 
-// module computeCluster './modules/compute-cluster.bicep' = {
-//   name: 'computeCluster'
-//   scope: rg
-//   params: {
-//     workspaceName: workspaceName
-//     computeName: computeClusterName
-//     location: location
-//   }
-//   dependsOn: [workspace]
-// }
+module computeCluster './modules/compute-cluster.bicep' = {
+  name: 'computeCluster'
+  scope: rg
+  params: {
+    workspaceName: workspaceName
+    computeName: computeClusterName
+    location: location
+  }
+  dependsOn: [workspace]
+}
 
-module computeInstance './modules/compute-instance.bicep' = {
+// module environment './modules/environment.bicep' = {
+//    name: 'environment'
+//    scope: rg
+//    params: {
+//      workspaceName: workspaceName
+//      environmentName: environmentName
+//    }
+//    dependsOn: [workspace]
+//  }
+
+ module computeInstance './modules/compute-instance.bicep' = {
   name: 'computeInstance'
   scope: rg
   params: {
@@ -62,16 +73,6 @@ module computeInstance './modules/compute-instance.bicep' = {
   }
   dependsOn: [workspace]
 }
-
-module environment './modules/environment.bicep' = {
-   name: 'environment'
-   scope: rg
-   params: {
-     workspaceName: workspaceName
-     environmentName: environmentName
-   }
-   dependsOn: [workspace]
- }
 
 // module registry './modules/registry.bicep' = {
 //    name: 'registry'

@@ -5,7 +5,7 @@ Generates synthetic datasets locally and registers them as Azure ML Data Assets
 in the workspace. Run this once before submitting any training jobs.
 
 Usage:
-    & c:/Carlo/Azure/AI-300/mlops-cdr-demo/.venv/Scripts/python.exe c:/Carlo/Azure/AI-300/mlops-cdr-demo/src/data/register_data.py
+    & c:/Carlo/Azure/AI-300/mlops-cdr-demo/.venv/Scripts/python.exe -m src.data.register_data
 """
 
 import argparse
