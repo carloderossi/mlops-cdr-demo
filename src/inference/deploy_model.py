@@ -27,6 +27,7 @@ endpoint_name = "credit-risk-endpoint-" + endpoint_suffix
 print(f"Endpoint name: {endpoint_name}")
 #endpoint_name = f"credit-risk-endpoint-{int(time.time())}"
 
+# https://learn.microsoft.com/en-us/azure/machine-learning/reference-managed-online-endpoints-vm-sku-list?view=azureml-api-2
 endpoint = ManagedOnlineEndpoint(
     name=endpoint_name,
     description="Online endpoint for XGBoost Credit Risk classification",
@@ -47,6 +48,7 @@ deployment_name = "champion-deployment"
 # https://github.com/Azure/azureml-examples/blob/main/sdk/python/endpoints/online/mlflow/online-endpoints-deploy-mlflow-model-with-script.ipynb
 model_asset = ml_client.models.get(name="credit-risk-model", version="1")
 
+# https://learn.microsoft.com/en-us/azure/machine-learning/concept-online-deployment-model-specification?view=azureml-api-2
 blue_deployment = ManagedOnlineDeployment(
     name=deployment_name,
     endpoint_name=endpoint_name,

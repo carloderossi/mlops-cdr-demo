@@ -14,6 +14,8 @@ dependencies = [
     "matplotlib<4.0.0",
     "pyarrow>=24.0.0",
     "python-dotenv>=1.2.2",
+    "azure-ai-inference",
+    "azure-identity"
 ]
 
 [tool.uv]

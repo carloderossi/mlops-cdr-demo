@@ -1,0 +1,276 @@
+# .github/workflows/retrain_on_drift.yml
+# ---------------------------------------------------------------------------
+# GitHub Actions — Drift Detection → Human Approval → Challenger Retraining
+#
+# Triggers:
+#   1. Scheduled:  runs drift detection daily at 06:00 UTC
+#   2. Manual:     workflow_dispatch lets you run on demand with custom params
+#
+# Flow:
+#   Job 1 — detect_drift
+#     • checks out repo
+#     • runs detect_drift.py against the latest inference log
+#     • writes drift_report.json as a workflow artifact
+#     • sets output `drift_detected=true/false`
+#
+#   Job 2 — await_approval   (only if drift_detected=true)
+#     • uses a GitHub Environment with a required reviewer
+#     • blocks here until a human clicks Approve in the GitHub UI
+#     • this is the "human approval gate" from the spec
+#
+#   Job 3 — retrain_challenger   (only after approval)
+#     • runs submit_train_job.py --mode challenger
+#     • passes the drift summary as --drift_trigger tag
+#     • posts a summary comment with ROC-AUC delta
+#
+# Required secrets (set in repo Settings → Secrets → Actions):
+#   AZURE_CLIENT_ID        — service principal / managed identity
+#   AZURE_CLIENT_SECRET
+#   AZURE_TENANT_ID
+#   AZURE_SUBSCRIPTION_ID
+#   AZURE_RESOURCE_GROUP
+#   AZURE_ML_WORKSPACE
+#   AZURE_ML_COMPUTE        — compute cluster name
+#
+# Required GitHub Environment:
+#   Name: "challenger-approval"
+#   Add required reviewers under Environment protection rules.
+#   This is what creates the manual approval gate in Job 2.
+# ---------------------------------------------------------------------------
+
+name: Drift Detection and Challenger Retraining
+
+on:
+  schedule:
+    # Run every day at 06:00 UTC
+    - cron: "0 6 * * *"
+
+  workflow_dispatch:
+    inputs:
+      psi_threshold:
+        description: "PSI threshold for drift trigger (default: 0.25)"
+        required: false
+        default: "0.25"
+      force_retrain:
+        description: "Force retraining even if no drift detected (true/false)"
+        required: false
+        default: "false"
+      baseline_data:
+        description: "Path to baseline parquet (relative to repo root)"
+        required: false
+        default: "data/baseline_train.parquet"
+      inference_log:
+        description: "Path to inference log parquet (relative to repo root)"
+        required: false
+        default: "data/inference_log.parquet"
+
+env:
+  PYTHON_VERSION: "3.10"
+  PSI_THRESHOLD:  ${{ github.event.inputs.psi_threshold || '0.25' }}
+
+# ---------------------------------------------------------------------------
+# Job 1 — Drift Detection
+# ---------------------------------------------------------------------------
+jobs:
+  detect_drift:
+    name: "Detect Data Drift"
+    runs-on: ubuntu-latest
+
+    outputs:
+      drift_detected: ${{ steps.drift.outputs.drift_detected }}
+      drift_summary:  ${{ steps.drift.outputs.drift_summary }}
+      max_psi:        ${{ steps.drift.outputs.max_psi }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install drift detection dependencies
+        run: |
+          pip install \
+            pandas==2.2.1 \
+            numpy==1.26.4 \
+            scipy==1.13.0 \
+            pyarrow==16.0.0
+
+      - name: Run drift detection
+        id: drift
+        # detect_drift.py exits with code 1 if drift is detected.
+        # We capture both the exit code and the report without failing the step.
+        run: |
+          set +e   # don't fail immediately on non-zero exit
+
+          python src/detect_drift.py \
+            --baseline_data ${{ github.event.inputs.baseline_data || 'data/baseline_train.parquet' }} \
+            --inference_log ${{ github.event.inputs.inference_log || 'data/inference_log.parquet' }} \
+            --output_report data/drift_report.json \
+            --psi_threshold ${{ env.PSI_THRESHOLD }}
+
+          DRIFT_EXIT=$?
+          set -e
+
+          # Parse the report for outputs
+          DRIFT_DETECTED=$(python -c "import json; r=json.load(open('data/drift_report.json')); print(str(r['drift_detected']).lower())")
+          MAX_PSI=$(python -c "import json; r=json.load(open('data/drift_report.json')); print(r['max_psi'])")
+          SUMMARY=$(python -c "import json; r=json.load(open('data/drift_report.json')); print(r['explanation']['summary_text'])")
+
+          # Override if force_retrain was set
+          if [ "${{ github.event.inputs.force_retrain }}" = "true" ]; then
+            DRIFT_DETECTED="true"
+            echo "force_retrain=true — overriding drift_detected to true"
+          fi
+
+          echo "drift_detected=$DRIFT_DETECTED" >> $GITHUB_OUTPUT
+          echo "max_psi=$MAX_PSI"               >> $GITHUB_OUTPUT
+          # Summary may contain special chars — encode it
+          echo "drift_summary<<EOF"             >> $GITHUB_OUTPUT
+          echo "$SUMMARY"                       >> $GITHUB_OUTPUT
+          echo "EOF"                            >> $GITHUB_OUTPUT
+
+          echo "Drift detected: $DRIFT_DETECTED | Max PSI: $MAX_PSI"
+
+      - name: Upload drift report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report-${{ github.run_id }}
+          path: data/drift_report.json
+          retention-days: 30
+
+      - name: Annotate — no drift
+        if: steps.drift.outputs.drift_detected == 'false'
+        run: |
+          echo "::notice title=Drift Status::No significant drift detected (max PSI=${{ steps.drift.outputs.max_psi }}). Retraining not required."
+
+      - name: Annotate — drift detected
+        if: steps.drift.outputs.drift_detected == 'true'
+        run: |
+          echo "::warning title=Drift Detected::PSI threshold exceeded (max PSI=${{ steps.drift.outputs.max_psi }}). Retraining workflow will proceed after human approval."
+
+# ---------------------------------------------------------------------------
+# Job 2 — Human Approval Gate  (only runs if drift was detected)
+# ---------------------------------------------------------------------------
+  await_approval:
+    name: "Await Human Approval"
+    needs: detect_drift
+    if: needs.detect_drift.outputs.drift_detected == 'true'
+
+    # This environment MUST have required reviewers configured in:
+    # GitHub → Settings → Environments → challenger-approval → Protection rules
+    # The job will pause here until a reviewer approves or rejects.
+    environment: challenger-approval
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display drift summary for approver
+        run: |
+          echo "============================================"
+          echo "  CHALLENGER RETRAINING APPROVAL REQUEST"
+          echo "============================================"
+          echo "  Drift summary:"
+          echo "  ${{ needs.detect_drift.outputs.drift_summary }}"
+          echo ""
+          echo "  Max PSI:   ${{ needs.detect_drift.outputs.max_psi }}"
+          echo "  Threshold: ${{ env.PSI_THRESHOLD }}"
+          echo ""
+          echo "  Approving this step will:"
+          echo "  1. Submit a Challenger (ModelB) training job on Azure ML"
+          echo "  2. Register the model as 'challenger_candidate' in the registry"
+          echo "  3. Post a summary with ROC-AUC vs Champion"
+          echo ""
+          echo "  Review the drift report artifact before approving."
+          echo "============================================"
+
+# ---------------------------------------------------------------------------
+# Job 3 — Retrain Challenger
+# ---------------------------------------------------------------------------
+  retrain_challenger:
+    name: "Retrain Challenger (ModelB)"
+    needs: [detect_drift, await_approval]
+    if: needs.detect_drift.outputs.drift_detected == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Azure ML SDK v2
+        run: |
+          pip install \
+            azure-ai-ml==1.16.0 \
+            azure-identity==1.16.0 \
+            pandas==2.2.1 \
+            pyarrow==16.0.0
+
+      - name: Azure login (service principal)
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId":       "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret":   "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId":       "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      - name: Submit Challenger training job
+        id: submit
+        env:
+          AZURE_CLIENT_ID:     ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID:     ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          python jobs/submit_train_job.py \
+            --subscription_id ${{ secrets.AZURE_SUBSCRIPTION_ID }} \
+            --resource_group   ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --workspace_name   ${{ secrets.AZURE_ML_WORKSPACE }} \
+            --compute_cluster  ${{ secrets.AZURE_ML_COMPUTE }} \
+            --mode             challenger \
+            --drift_trigger    "${{ needs.detect_drift.outputs.drift_summary }}" \
+            --initial_traffic_pct 0
+
+      - name: Download drift report
+        uses: actions/download-artifact@v4
+        with:
+          name: drift-report-${{ github.run_id }}
+          path: data/
+
+      - name: Post retraining summary
+        run: |
+          python - << 'PYEOF'
+          import json, os
+          from pathlib import Path
+
+          report_path = Path("data/drift_report.json")
+          if report_path.exists():
+              report = json.loads(report_path.read_text())
+              expl = report.get("explanation", {})
+              lines = "\n".join(expl.get("explanation_lines", []))
+              summary = (
+                  f"## Challenger Retraining Triggered\n\n"
+                  f"**Drift summary:**\n{lines}\n\n"
+                  f"**Max PSI:** {report['max_psi']}\n"
+                  f"**Features flagged:** {report['n_features_flagged']}\n\n"
+                  f"Challenger (ModelB) training job submitted to Azure ML.\n"
+                  f"Model will be registered as `challenger_candidate` with traffic=0%.\n\n"
+                  f"Next step: run the evaluation script to compare Champion vs Challenger ROC-AUC, "
+                  f"then promote via `jobs/submit_train_job.py` traffic update."
+              )
+              print(summary)
+              # Write to GitHub step summary
+              summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
+              if summary_path:
+                  with open(summary_path, "a") as f:
+                      f.write(summary)
+          PYEOF

@@ -41,6 +41,7 @@ Requirements (installed in your local venv, NOT needed inside AML):
 
 Usage:
     & c:/Carlo/Azure/AI-300/mlops-cdr-demo/.venv/Scripts/python.exe -m src.train.submit_train_job --compute_cluster ml-ai300cdr-cluster
+    & c:/Carlo/Azure/AI-300/mlops-cdr-demo/.venv/Scripts/python.exe -m src.train.submit_train_job --compute_cluster ml-ai300cdr-cluster --mode challenger --drift_trigger "covariate_drift: income -17%, debt_ratio +20%, PSI=0.30"
 """
 
 from __future__ import annotations
@@ -355,7 +356,7 @@ def register_model(
 # ---------------------------------------------------------------------------
 
 def print_summary(job_name: str, job_status: str, model: Model | None, args: argparse.Namespace):
-    width = 64
+    width = 80
     bar = "─" * width
     print(f"\n┌{bar}┐")
     print(f"│{'  Credit Risk MLOps — Job Summary':^{width}}│")
